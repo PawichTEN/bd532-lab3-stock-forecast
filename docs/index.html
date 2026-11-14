@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BD532 Lab 3 — ทำนายราคาปิดหุ้น S&amp;P 500 ล่วงหน้า 7 วันทำการ</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1d2330; --muted:#667085; --line:#d9dde3;
+          --ok:#12805c; --bad:#c62828; --warn:#8a6d00; --info:#1f5fbf; --band:rgba(31,95,191,.15); }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui, "Noto Sans Thai", sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:16px; background:var(--card); border-bottom:1px solid var(--line); }
+  header h1 { margin:0; font-size:20px; }
+  header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
+  main { max-width:1100px; margin:auto; padding:16px; display:grid; gap:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; overflow-x:auto; }
+  .card h2 { margin:0 0 8px; font-size:16px; }
+  .note { color:var(--muted); font-size:13px; margin:0 0 8px; }
+  .banner { padding:10px 12px; border-radius:8px; font-size:14px; }
+  .banner.err { background:#fdecec; color:var(--bad); }
+  .banner.test { background:#fff6d6; color:var(--warn); border:1px solid #f0d97a; }
+  .banner.alert { background:#fdecec; color:var(--bad); margin-top:8px; }
+  .status { display:flex; flex-wrap:wrap; gap:8px 24px; align-items:center; font-size:14px; }
+  .pill { display:inline-block; padding:4px 10px; border-radius:999px; font-weight:600; }
+  .pill.ok { background:#e6f4ee; color:var(--ok); }
+  .pill.stale { background:#fdecec; color:var(--bad); }
+  table { border-collapse:collapse; width:100%; font-size:14px; font-variant-numeric:tabular-nums; }
+  th, td { padding:7px 8px; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  th { color:var(--muted); font-weight:600; font-size:12px; }
+  #summary tbody tr { cursor:pointer; }
+  #summary tbody tr:hover { background:#f2f5fb; }
+  #summary tbody tr.sel { background:#e8effb; }
+  .up { color:var(--ok); } .down { color:var(--bad); }
+  .legend { display:flex; gap:16px; font-size:13px; color:var(--muted); margin-bottom:6px; flex-wrap:wrap; }
+  .sw { display:inline-block; width:18px; height:10px; margin-right:6px; vertical-align:middle; }
+  svg { width:100%; height:auto; display:block; }
+  footer { max-width:1100px; margin:0 auto 24px; padding:0 16px; color:var(--muted); font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>ทำนายราคาปิดหุ้น S&amp;P 500 ล่วงหน้า 7 วันทำการ</h1>
+  <p>อัปเดตอัตโนมัติทุกวันทำการ 07:20 น. เวลานิวยอร์ก (ก่อนตลาดเปิด 09:30) ด้วย GitHub Actions · BD532 Lab 3.2</p>
+</header>
+
+<main>
+  <div id="loadError" class="banner err" hidden></div>
+  <div id="testBanner" class="banner test" hidden></div>
+
+  <section class="card">
+    <h2>สถานะ</h2>
+    <div class="status" id="status"><span class="pill stale">โหลดข้อมูลไม่ได้</span></div>
+  </section>
+
+  <section class="card">
+    <h2>สรุปคำทำนาย</h2>
+    <p class="note">คลิกแถวเพื่อดูกราฟ · ช่วง 80% คือช่วงที่ราคาจริงควรตกอยู่ภายใน 8 ใน 10 ครั้ง (ตรวจได้ในหัวข้อความแม่นยำจริงด้านล่าง)</p>
+    <table id="summary">
+      <thead><tr><th>หุ้น</th><th>ราคาปิดล่าสุด</th><th>h1</th><th>h1 เปลี่ยน</th><th>h7</th><th>h7 เปลี่ยน</th><th>ช่วง 80% ของ h7</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section class="card">
+    <h2>ราคาปิด 60 วันล่าสุดและคำทำนาย: <span id="chartTitle">–</span></h2>
+    <div class="legend">
+      <span><span class="sw" style="background:#1d2330;height:3px"></span>ราคาปิดจริง</span>
+      <span><span class="sw" style="background:#1f5fbf;height:3px"></span>คำทำนาย</span>
+      <span><span class="sw" style="background:rgba(31,95,191,.25)"></span>ช่วงคาดการณ์ 80%</span>
+    </div>
+    <svg id="chart" viewBox="0 0 900 340" role="img" aria-label="กราฟราคาและคำทำนาย"></svg>
+  </section>
+
+  <section class="card">
+    <h2>ความแม่นยำจริงหลัง deploy</h2>
+    <p class="note" id="monNote">ยังไม่มีข้อมูล</p>
+    <table id="monitor">
+      <thead><tr><th>h</th><th>จำนวนที่ครบกำหนด</th><th>%err โมเดล</th><th>%err naive</th><th>ชนะ naive (%)</th>
+        <th>ทิศถูก</th><th>coverage 80%</th><th>%err ตอน test</th><th>coverage ตอน test</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div id="monAlerts"></div>
+  </section>
+</main>
+
+<footer>
+  ใช้เพื่อการศึกษาเท่านั้น ไม่ใช่คำแนะนำการลงทุน ข้อมูลราคาจาก Yahoo Finance ผ่าน yfinance อาจล่าช้าหรือคลาดเคลื่อน
+  โมเดลไม่รู้ข่าว ประกาศงบ หรือเหตุการณ์ในอนาคต
+</footer>
+
+<script>
+const STALE_DAYS = 4;          // workflow รันเฉพาะวันทำการ เผื่อวันหยุดสุดสัปดาห์ (ศุกร์ → จันทร์)
+const $ = (id) => document.getElementById(id);
+const fmt = (x, d = 2) => (x === null || x === undefined || Number.isNaN(x)) ? "–" : Number(x).toFixed(d);
+const pct = (a, b) => (b / a - 1) * 100;
+let latest = null;
+
+async function getJSON(path) {
+  // ต่อท้าย ?t=... เพื่อไม่ให้เบราว์เซอร์หรือ CDN ส่งไฟล์เก่าจาก cache
+  const r = await fetch(`${path}?t=${Date.now()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+  return r.json();
+}
+
+function renderStatus(d) {
+  // คำนวณความสดจาก generated_at ที่ฝั่งเบราว์เซอร์ — ถ้า workflow ไม่รันเลย ไฟล์จะไม่เปลี่ยน แต่หน้าเว็บยังรู้ได้ว่าเก่า
+  const gen = new Date(d.generated_at);
+  const ageDays = (Date.now() - gen.getTime()) / 86400000;
+  const fresh = ageDays <= STALE_DAYS;
+  const pill = fresh ? `<span class="pill ok">อัปเดตแล้ว</span>`
+                     : `<span class="pill stale">ไม่อัปเดตเกิน ${STALE_DAYS} วัน — ตรวจแท็บ Actions</span>`;
+  $("status").innerHTML = `${pill}
+    <span>ข้อมูลถึงวันที่ (as_of): <b>${d.as_of}</b></span>
+    <span>สร้างเมื่อ: ${gen.toLocaleString("th-TH")} (${fmt(ageDays, 1)} วันก่อน)</span>
+    <span>ทำนายวันที่: ${d.target_dates[0]} … ${d.target_dates[d.target_dates.length - 1]}</span>
+    <span>โมเดล: ${d.model.version} (${d.model.algorithm})</span>
+    <span>ข้อมูลจาก: ${d.source}</span>`;
+  if (d.source.startsWith("csv:")) {
+    $("testBanner").hidden = false;
+    $("testBanner").textContent = `หน้านี้สร้างจากไฟล์ทดสอบ (${d.source}) ไม่ใช่ข้อมูลจริงจาก Yahoo Finance`;
+  }
+  if (d.warnings && d.warnings.length) {
+    $("status").insertAdjacentHTML("beforeend", `<div class="banner alert">⚠️ ${d.warnings.join("<br>")}</div>`);
+  }
+}
+
+function renderSummary(d) {
+  const tb = $("summary").querySelector("tbody");
+  tb.innerHTML = "";
+  d.tickers.forEach((t, i) => {
+    const h1 = t.forecast.find((f) => f.h === 1), h7 = t.forecast.find((f) => f.h === 7);
+    const c1 = pct(t.last_close, h1.pred), c7 = pct(t.last_close, h7.pred);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><b>${t.ticker}</b></td><td>${fmt(t.last_close)}</td>
+      <td>${fmt(h1.pred)}</td><td class="${c1 >= 0 ? "up" : "down"}">${c1 >= 0 ? "+" : ""}${fmt(c1)}%</td>
+      <td>${fmt(h7.pred)}</td><td class="${c7 >= 0 ? "up" : "down"}">${c7 >= 0 ? "+" : ""}${fmt(c7)}%</td>
+      <td>${fmt(h7.lo)} – ${fmt(h7.hi)}</td>`;
+    tr.addEventListener("click", () => select(i));
+    tb.appendChild(tr);
+  });
+}
+
+function select(i) {
+  [...$("summary").querySelectorAll("tbody tr")].forEach((tr, j) => tr.classList.toggle("sel", i === j));
+  drawChart(latest.tickers[i]);
+}
+
+function drawChart(t) {
+  $("chartTitle").textContent = t.ticker;
+  const W = 900, H = 340, L = 60, R = 20, T = 15, B = 40;
+  const hd = t.history.dates, hc = t.history.close, fc = t.forecast;
+  const n = hd.length + fc.length;
+  const ys = [...hc, ...fc.map((f) => f.lo), ...fc.map((f) => f.hi)];
+  let lo = Math.min(...ys), hi = Math.max(...ys);
+  const pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
+  const x = (i) => L + (i / (n - 1)) * (W - L - R);
+  const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  const last = hd.length - 1;
+  const pts = (arr) => arr.map(([i, v]) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+
+  let s = "";
+  for (let k = 0; k <= 4; k++) {                           // เส้นแกน y
+    const v = lo + (k / 4) * (hi - lo);
+    s += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="#e6e8ec"/>
+          <text x="${L - 6}" y="${y(v) + 4}" font-size="11" text-anchor="end" fill="#667085">${fmt(v)}</text>`;
+  }
+  [0, Math.floor(last / 2), last, n - 1].forEach((i) => {  // ป้ายแกน x
+    const label = i < hd.length ? hd[i] : fc[i - hd.length].date;
+    const anchor = i === 0 ? "start" : i === n - 1 ? "end" : "middle";
+    s += `<text x="${x(i)}" y="${H - 12}" font-size="11" text-anchor="${anchor}" fill="#667085">${label}</text>`;
+  });
+  s += `<line x1="${x(last)}" x2="${x(last)}" y1="${T}" y2="${H - B}" stroke="#bbb" stroke-dasharray="4 4"/>`;
+  // ช่วงคาดการณ์ 80% (เริ่มจากราคาปิดล่าสุด)
+  const upper = [[last, hc[last]], ...fc.map((f, j) => [hd.length + j, f.hi])];
+  const lower = [...fc.map((f, j) => [hd.length + j, f.lo])].reverse().concat([[last, hc[last]]]);
+  s += `<polygon points="${pts(upper)} ${pts(lower)}" fill="rgba(31,95,191,.18)" stroke="none"/>`;
+  s += `<polyline points="${pts(hc.map((v, i) => [i, v]))}" fill="none" stroke="#1d2330" stroke-width="2"/>`;
+  s += `<polyline points="${pts([[last, hc[last]], ...fc.map((f, j) => [hd.length + j, f.pred])])}"
+          fill="none" stroke="#1f5fbf" stroke-width="2" stroke-dasharray="6 4"/>`;
+  fc.forEach((f, j) => { s += `<circle cx="${x(hd.length + j)}" cy="${y(f.pred)}" r="3" fill="#1f5fbf"><title>h${f.h} ${f.date}: ${fmt(f.pred)} (${fmt(f.lo)}–${fmt(f.hi)})</title></circle>`; });
+  $("chart").innerHTML = s;
+}
+
+function renderMonitoring(m) {
+  const tb = $("monitor").querySelector("tbody");
+  tb.innerHTML = m.by_horizon.map((r) => `<tr><td>h${r.h}</td><td>${r.n}</td>
+      <td>${r.n ? fmt(r.model_err, 3) + "%" : "–"}</td><td>${r.n ? fmt(r.naive_err, 3) + "%" : "–"}</td>
+      <td>${r.n ? fmt(r.skill_vs_naive) : "–"}</td><td>${r.n ? fmt(r.direction_acc * 100, 0) + "%" : "–"}</td>
+      <td>${r.n ? fmt(r.coverage * 100, 0) + "%" : "–"}</td>
+      <td>${fmt(r.test_model_err, 3)}%</td><td>${fmt(r.test_coverage * 100, 0)}%</td></tr>`).join("");
+  $("monNote").textContent = m.n_matured
+    ? `คำทำนายที่ครบกำหนดแล้ว ${m.n_matured} รายการ · coverage รวม ${fmt(m.coverage_all * 100, 0)}% (เป้า ${fmt(m.interval_level * 100, 0)}%) · อัปเดต ${new Date(m.updated_at).toLocaleString("th-TH")}`
+    : "ยังไม่มีคำทำนายที่ถึงวันเป้าหมาย — ตัวเลขจะเริ่มมีหลังวันทำการถัดไป และครบทุก h หลัง 7 วันทำการ";
+  $("monAlerts").innerHTML = (m.alerts || []).map((a) => `<div class="banner alert">⚠️ ${a}</div>`).join("");
+}
+
+(async () => {
+  try {
+    latest = await getJSON("data/latest.json");
+    renderStatus(latest);
+    renderSummary(latest);
+    select(0);
+  } catch (e) {
+    $("loadError").hidden = false;
+    $("loadError").textContent = `ยังไม่มีไฟล์ผลทำนาย (${e.message}) — รัน predict.py หรือรอ workflow ทำงานครั้งแรก`;
+    return;
+  }
+  try { renderMonitoring(await getJSON("data/monitoring.json")); }
+  catch (e) { $("monNote").textContent = `โหลด monitoring.json ไม่ได้ (${e.message})`; }
+})();
+</script>
+</body>
+</html>
