@@ -155,7 +155,7 @@ def _one_ticker(g: pd.DataFrame) -> pd.DataFrame:
     for k in (5, 20, 50):
         f[f"sma_ratio_{k}"] = c / c.rolling(k).mean() - 1
     f["dist_high_60"] = c / c.rolling(MAX_WINDOW).max() - 1
-    f["rsi_14"] = _rsi(c, 14) / 100
+    f["rsi_14"] = _rsi(c, 10) / 100
     f["hl_range"] = np.log(g["High"] / g["Low"])
     lv = np.log1p(g["Volume"].astype(float))
     f["volume_z_20"] = (lv - lv.rolling(20).mean()) / lv.rolling(20).std()
